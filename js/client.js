@@ -1,4 +1,4 @@
-const socket = io("http://localhost:8000")
+const socket = io("https://rechat-cnh0.onrender.com")
 const form = document.getElementById('send-container')
 const msgInp = document.getElementById('messageInp')
 const msgCont = document.querySelector('.container')
