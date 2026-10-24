@@ -1,127 +1,195 @@
-const socket = io("https://rechat-cnh0.onrender.com")
-const form = document.getElementById('send-container')
-const msgInp = document.getElementById('messageInp')
-const msgCont = document.querySelector('.container')
-const btn = document.querySelector("button")
-const time = new Date().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit"
-});
-let inputImg = document.getElementById("input-img")
-let mainImg = document.getElementById("main-img")
-let name;
-var audio = new Audio('reply.mp3')
 
-function appendImg(img, name, color, position) {
+const socket = io("https://rechat-cnh0.onrender.com");
 
-    const wrapper = document.createElement("div");
-    wrapper.classList.add("image-message");
-    wrapper.classList.add("message");
-    wrapper.classList.add(position);
+const form = document.getElementById("send-container");
+const msgInp = document.getElementById("messageInp");
+const msgCont = document.querySelector(".container");
+const inputImg = document.getElementById("input-img");
 
-    // Username
-    const nameElement = document.createElement("div");
-    nameElement.innerText = name;
-    nameElement.classList.add("image-sender");
+const audio = new Audio("./reply.mp3");
 
-    // Image
-    const imgElement = document.createElement("img");
-    imgElement.src = img;
-    imgElement.classList.add("chat-image");
+let name = "";
 
-    // Time
-    const timeElement = document.createElement("span");
+while (!name.trim()) {
+    const enteredName = prompt("Enter your name to join");
 
-    timeElement.innerText = new Date().toLocaleTimeString([], {
+    if (enteredName === null) {
+        alert("Please enter a name to join the chat.");
+        continue;
+    }
+
+    name = enteredName.trim();
+}
+
+function formatTime() {
+    return new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit"
     });
-
-    timeElement.classList.add("message-time");
-
-    // User color
-    if (color) {
-        wrapper.style.borderLeft = `4px solid ${color}`;
-    }
-    
-    if (position === 'left') {
-        audio.play();
-    }
-
-    wrapper.appendChild(nameElement);
-    wrapper.appendChild(imgElement);
-    wrapper.appendChild(timeElement);
-    msgCont.appendChild(wrapper);
 }
 
-inputImg.onchange = (name, position) => {
-    const file = inputImg.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-        // Show image locally
-        mainImg.src = reader.result;
-        // Send image to server
-        socket.emit("send-img", reader.result);
-        appendImg(reader.result, "You", null, "right");
-    };
-    reader.readAsDataURL(file);
-};
+function playNotification() {
+    audio.currentTime = 0;
+    audio.play().catch(() => {});
+}
 
-const appendMsg = (message, position, color = null) => {
+function appendMsg(message, position, color = null) {
     const msgElement = document.createElement("div");
     const textElement = document.createElement("span");
     const timeElement = document.createElement("span");
 
-    textElement.innerText = message;
-    timeElement.innerText = new Date().toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit"
-    });
+    textElement.textContent = message;
+    timeElement.textContent = formatTime();
     timeElement.classList.add("message-time");
 
     msgElement.classList.add("message", position);
-    msgElement.appendChild(textElement);
-    msgElement.appendChild(timeElement);
+
     if (color) {
         msgElement.style.borderLeft = `4px solid ${color}`;
     }
+
+    msgElement.appendChild(textElement);
+    msgElement.appendChild(timeElement);
     msgCont.appendChild(msgElement);
+
+    msgCont.scrollTop = msgCont.scrollHeight;
+
     if (position === "left") {
-        audio.play();
-    }
-};
-
-// To prevent reload of form
-form.addEventListener("submit", (e) => {
-    e.preventDefault()
-    const message = msgInp.value
-    appendMsg(`You: ${message}`, 'right')
-    socket.emit('send', message)
-    msgInp.value = ""
-})
-
-while (!name || name === null) {
-    name = prompt("Enter your name to join")
-    if (name === null) {
-        alert("No name added, add your name to join")
+        playNotification();
     }
 }
 
-// taking name from server
-socket.emit('new-user-joined', name);
-socket.on('user-joined', data => {
-    appendMsg(`${data.name} joined the chat`, 'center')
+function appendImg(img, sender, color, position) {
+    const wrapper = document.createElement("div");
+    wrapper.classList.add("image-message", "message", position);
+
+    const nameElement = document.createElement("div");
+    nameElement.textContent = sender;
+    nameElement.classList.add("image-sender");
+
+    const imgElement = document.createElement("img");
+    imgElement.src = img;
+    imgElement.alt = "Shared image";
+    imgElement.classList.add("chat-image");
+
+    const timeElement = document.createElement("span");
+    timeElement.textContent = formatTime();
+    timeElement.classList.add("message-time");
+
+    if (color) {
+        wrapper.style.borderLeft = `4px solid ${color}`;
+    }
+
+    wrapper.append(nameElement, imgElement, timeElement);
+    msgCont.appendChild(wrapper);
+
+    msgCont.scrollTop = msgCont.scrollHeight;
+
+    if (position === "left") {
+        playNotification();
+    }
+}
+
+// Connection diagnostics
+socket.on("connect", () => {
+    console.log("Connected to ReChat server:", socket.id);
+    appendMsg("Connected to chat", "center");
+    socket.emit("new-user-joined", name);
 });
 
-socket.on('receive', data => {
-    appendMsg(`${data.name} ${time}: ${data.message}`, 'left', data.color)
+socket.on("connect_error", (error) => {
+    console.error("Socket connection failed:", error.message);
 });
 
-socket.on("img", data => {
-    appendImg(data.img, data.name, data.color);
+socket.on("disconnect", (reason) => {
+    console.warn("Socket disconnected:", reason);
 });
 
-socket.on('left', data => {
-    appendMsg(`${data.name} left the chat`, 'center')
-})
+socket.on("user-joined", (data) => {
+    appendMsg(`${data.name} joined the chat`, "center");
+});
+
+// Send text messages
+form.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const message = msgInp.value.trim();
+
+    if (!message) return;
+
+    if (!socket.connected) {
+        appendMsg("Not connected. Please wait and try again.", "center");
+        return;
+    }
+
+    socket.emit("send", message);
+    appendMsg(`You: ${message}`, "right");
+
+    msgInp.value = "";
+});
+
+// Receive text messages
+socket.on("receive", (data) => {
+    console.log("Received message:", data);
+
+    appendMsg(
+        `${data.name}: ${data.message}`,
+        "left",
+        data.color
+    );
+});
+
+// Send images
+inputImg.addEventListener("change", () => {
+    const file = inputImg.files[0];
+
+    if (!file) return;
+
+    if (!socket.connected) {
+        appendMsg("Not connected. Cannot send image.", "center");
+        inputImg.value = "";
+        return;
+    }
+
+    if (!["image/jpeg", "image/png"].includes(file.type)) {
+        appendMsg("Please select a JPG or PNG image.", "center");
+        inputImg.value = "";
+        return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        appendMsg("Please select an image smaller than 5 MB.", "center");
+        inputImg.value = "";
+        return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+        const imageData = reader.result;
+
+        socket.emit("send-img", imageData);
+
+        appendImg(imageData, "You", null, "right");
+        inputImg.value = "";
+    };
+
+    reader.onerror = () => {
+        appendMsg("Unable to read the selected image.", "center");
+        inputImg.value = "";
+    };
+
+    reader.readAsDataURL(file);
+});
+
+// Receive images
+socket.on("img", (data) => {
+    console.log("Received image from:", data.name);
+
+    appendImg(data.img, data.name, data.color, "left");
+});
+
+// User leaves
+socket.on("left", (data) => {
+    appendMsg(`${data.name} left the chat`, "center");
+});
